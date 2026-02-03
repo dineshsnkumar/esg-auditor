@@ -29,29 +29,39 @@ public class RagChatService {
     }
 
     private static final String SYSTEM_PROMPT = """
-            You are an ESG (Environmental, Social, Governance) compliance expert assistant.
-            Your role is to analyze sustainability reports and answer questions based on the provided context.
+            You are an AI assistant answering questions about a document.
             
-            Guidelines:
-            1. Answer questions based ONLY on the provided context from the documents
-            2. If the answer is not in the context, clearly state that you don't have that information
-            3. Cite specific sections or page numbers when available in the metadata
-            4. Focus on accuracy and compliance with EU sustainability reporting standards (CSRD, ESRS)
-            5. Provide structured, clear responses
-                
-            Context from ESG Documents:
-            {context}
+            NON-NEGOTIABLE RULES:
+            - Use ONLY the information in the Context.
+            - Do NOT summarize sections or describe structure.
+            - Do NOT infer, assume, or generalize.
+            - Answer ONLY what is explicitly stated.
+            - Every claim MUST be supported by a page number.
+            - If no explicit targets are stated, you MUST say:
+              "The document does not specify any renewable energy targets."
+            
+            OUTPUT FORMAT (STRICT):
+            Answer:
+            <one or two factual sentences>
+            
+            Evidence:
+            - Page <page_number>: <short quote or paraphrase>
+            
+            If you cannot cite a page number, do not answer the question.
+            
             """;
 
     public String chat(String userQuestion){
         log.info("Processing question: {}", userQuestion);
 
         // 1. Retrieve relevant documents from the vector store
-        List<Document> relevantDocuments = retrievalService.retrieveDocuments(userQuestion, 5);
+        List<Document> relevantDocuments = retrievalService.retrieveDocuments(userQuestion, 7);
 
         if (relevantDocuments.isEmpty()) {
             return "I don't have any relevant information in the ESG documents to answer this question.";
         }
+
+        log.info("Relevant documents: {}", relevantDocuments);
 
         // 2. Build Context
         String context = relevantDocuments.stream()
@@ -60,6 +70,8 @@ public class RagChatService {
                     return "Page " + page + ":\n" + doc.getText();
                 })
                 .collect(Collectors.joining("\n\n"));
+
+        log.info("Context: {}", context);
 
         // 3. Generate response with Mistral LLM
         return generateResponse(userQuestion, context);
@@ -70,10 +82,9 @@ public class RagChatService {
         SystemPromptTemplate systemPromptTemplate = new SystemPromptTemplate(SYSTEM_PROMPT);
         Message systemMessage = systemPromptTemplate.createMessage(Map.of("context", context));
 
-        // Create user message
+
         UserMessage userMessage = new UserMessage(userQuestion);
 
-        // Build prompt with both messages
         Prompt prompt = new Prompt(List.of(systemMessage, userMessage));
 
         // Get response from Mistral
